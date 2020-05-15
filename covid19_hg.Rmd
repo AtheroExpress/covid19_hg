@@ -1,0 +1,522 @@
+---
+title: "Reviewing summary statistics from the COVID19-HGI"
+author: "[Sander W. van der Laan, PhD](https://swvanderlaan.github.io) | @swvanderlaan | s.w.vanderlaan@gmail.com"
+date: "`r Sys.Date()`"
+output:
+  html_notebook: 
+    cache: yes
+    code_folding: hide
+    collapse: yes
+    df_print: paged
+    fig.align: center
+    fig_caption: yes
+    fig_width: 12
+    fig_height: 8
+    fig_retina: 2
+    highlight: default #tango kate haddock
+    theme: spacelab #cosmo lumen paper yeti
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+mainfont: Arial
+subtitle: ""
+editor_options:
+  chunk_output_type: inline
+---
+
+```{r global_options, include = FALSE}
+# further define some knitr-options.
+knitr::opts_chunk$set(fig.width = 12, fig.height = 8, fig.path = 'Figures/', 
+                      warning = TRUE, # show warnings during codebook generation
+                      message = TRUE, # show messages during codebook generation
+                      error = TRUE, # do not interrupt codebook generation in case of errors; usually better for debugging
+                      echo = TRUE,  # show R code
+                      eval = TRUE)
+ggplot2::theme_set(ggplot2::theme_minimal())
+pander::panderOptions("table.split.table", Inf)
+
+```
+
+# Setup
+We will clean the environment, setup the locations, define colors, and create a datestamp.
+
+_Clean the environment._
+```{r echo = FALSE}
+rm(list = ls())
+```
+
+_Set locations and working directories..._
+```{r LocalSystem, echo = FALSE}
+### Operating System Version
+### Mac Pro
+# ROOT_loc = "/Volumes/EliteProQx2Media"
+# GENOMIC_loc = "/Users/svanderlaan/iCloud/Genomics"
+# AEDB_loc = paste0(GENOMIC_loc, "/AE-AAA_GS_DBs")
+# LAB_loc = paste0(GENOMIC_loc, "/LabBusiness")
+# PLINK_loc=paste0(ROOT_loc,"/PLINK")
+# AEGSQC_loc =  paste0(PLINK_loc, "/_AE_ORIGINALS/AEGS_COMBINED_QC2018")
+# PROJECT_loc = paste0(ROOT_loc, "/PLINK/analyses/baseline")
+
+### MacBook
+ROOT_loc = "/Users/swvanderlaan"
+# GENOMIC_loc = paste0(ROOT_loc, "/iCloud/Genomics")
+# LAB_loc = paste0(GENOMIC_loc, "/LabBusiness")
+PLINK_loc = paste0(ROOT_loc,"/PLINK")
+COVID19_loc = paste0(PLINK_loc,"/analyses/covid19_hgi")
+PROJECT_loc = paste0(COVID19_loc,"/covid19_hg")
+RAWDATA_loc = paste0(COVID19_loc,"/COVID19_HGI_ANA5_20200429")
+
+### SOME VARIABLES WE NEED DOWN THE LINE
+# TRAIT_OF_INTEREST = "UCORBIO" # Phenotype
+PROJECTNAME = "COVID19" # primary goal of this analysis
+SUBPROJECTNAME = "PRELIMINARYRELEASE1" # e.g. study name
+
+cat("\nCreate a new analysis directory...\n")
+ifelse(!dir.exists(file.path(PROJECT_loc, "/",paste0(PROJECTNAME,".",SUBPROJECTNAME))), 
+       dir.create(file.path(PROJECT_loc, "/",paste0(PROJECTNAME,".",SUBPROJECTNAME))), 
+       FALSE)
+ANALYSIS_loc = paste0(PROJECT_loc,"/",paste0(PROJECTNAME,".",SUBPROJECTNAME))
+
+ifelse(!dir.exists(file.path(ANALYSIS_loc, "/PLOTS")), 
+       dir.create(file.path(ANALYSIS_loc, "/PLOTS")), 
+       FALSE)
+PLOT_loc = paste0(ANALYSIS_loc,"/PLOTS")
+
+ifelse(!dir.exists(file.path(PLOT_loc, "/QC")), 
+       dir.create(file.path(PLOT_loc, "/QC")), 
+       FALSE)
+QC_loc = paste0(PLOT_loc,"/QC")
+
+ifelse(!dir.exists(file.path(ANALYSIS_loc, "/OUTPUT")), 
+       dir.create(file.path(ANALYSIS_loc, "/OUTPUT")), 
+       FALSE)
+OUT_loc = paste0(ANALYSIS_loc, "/OUTPUT")
+
+ifelse(!dir.exists(file.path(ANALYSIS_loc, "/BASELINE")), 
+       dir.create(file.path(ANALYSIS_loc, "/BASELINE")), 
+       FALSE)
+BASELINE_loc = paste0(ANALYSIS_loc, "/BASELINE")
+
+setwd(paste0(PROJECT_loc))
+getwd()
+list.files()
+
+```
+
+_... a package-installation function ..._
+```{r Function: installations}
+install.packages.auto <- function(x) { 
+  x <- as.character(substitute(x)) 
+  if (isTRUE(x %in% .packages(all.available = TRUE))) { 
+    eval(parse(text = sprintf("require(\"%s\")", x)))
+  } else { 
+    # Update installed packages - this may mean a full upgrade of R, which in turn
+    # may not be warrented. 
+    #update.packages(ask = FALSE) 
+    eval(parse(text = sprintf("install.packages(\"%s\", dependencies = TRUE, repos = \"http://cran-mirror.cs.uu.nl/\")", x)))
+  }
+  if (isTRUE(x %in% .packages(all.available = TRUE))) { 
+    eval(parse(text = sprintf("require(\"%s\")", x)))
+  } else {
+    source("http://bioconductor.org/biocLite.R")
+    # Update installed packages - this may mean a full upgrade of R, which in turn
+    # may not be warrented.
+    #biocLite(character(), ask = FALSE) 
+    eval(parse(text = sprintf("biocLite(\"%s\")", x)))
+    eval(parse(text = sprintf("require(\"%s\")", x)))
+  }
+}
+```
+
+_... and load those packages._
+```{r loading_packages}
+install.packages.auto("readr")
+install.packages.auto("optparse")
+install.packages.auto("tools")
+install.packages.auto("dplyr")
+install.packages.auto("tidyr")
+install.packages.auto("naniar")
+
+# To get 'data.table' with 'fwrite' to be able to directly write gzipped-files
+# Ref: https://stackoverflow.com/questions/42788401/is-possible-to-use-fwrite-from-data-table-with-gzfile
+# install.packages("data.table", repos = "https://Rdatatable.gitlab.io/data.table")
+library(data.table)
+
+install.packages.auto("tidyverse")
+install.packages.auto("knitr")
+install.packages.auto("DT")
+install.packages.auto("eeptools")
+
+install.packages.auto("haven")
+install.packages.auto("tableone")
+
+install.packages.auto("ggpubr")
+
+install.packages.auto("BlandAltmanLeh")
+
+install.packages.auto("ggplot2")
+
+install.packages.auto("CMplot")
+
+# For regional association plots
+devtools::install_github("jrs95/gassocplot")
+```
+
+```{r Alternate QQMAN}
+manhattan_edit <- function (x, chr = "CHR", bp = "BP", p = "P", snp = "SNP", col = c("gray10", "gray60"), chrlabs = NULL, 
+                            suggestiveline = -log10(1e-05), genomewideline = -log10(5e-08), 
+                            highlight = NULL, logp = TRUE, annotatePval = NULL, annotateTop = TRUE, ...) {
+    CHR = BP = P = index = NULL
+    if (!(chr %in% names(x))) 
+        stop(paste("Column", chr, "not found!"))
+    if (!(bp %in% names(x))) 
+        stop(paste("Column", bp, "not found!"))
+    if (!(p %in% names(x))) 
+        stop(paste("Column", p, "not found!"))
+    if (!(snp %in% names(x))) 
+        warning(paste("No SNP column found. OK unless you're trying to highlight."))
+    if (!is.numeric(x[[chr]])) 
+        stop(paste(chr, "column should be numeric. Do you have 'X', 'Y', 'MT', etc? If so change to numbers and try again."))
+    if (!is.numeric(x[[bp]])) 
+        stop(paste(bp, "column should be numeric."))
+    if (!is.numeric(x[[p]])) 
+        stop(paste(p, "column should be numeric."))
+    d = data.frame(CHR = x[[chr]], BP = x[[bp]], P = x[[p]])
+    if (!is.null(x[[snp]])) 
+        d = transform(d, SNP = x[[snp]])
+    d <- subset(d, (is.numeric(CHR) & is.numeric(BP) & is.numeric(P)))
+    d <- d[order(d$CHR, d$BP), ]
+    if (logp) {
+        d$logp <- -log10(d$P)
+    }
+    else {
+        d$logp <- d$P
+    }
+    d$pos = NA
+    d$index = NA
+    ind = 0
+    for (i in unique(d$CHR)) {
+        ind = ind + 1
+        d[d$CHR == i, ]$index = ind
+    }
+    nchr = length(unique(d$CHR))
+    if (nchr == 1) {
+        d$pos = d$BP
+        ticks = floor(length(d$pos))/2 + 1
+        xlabel = paste("Chromosome", unique(d$CHR), "position")
+        labs = ticks
+    }
+    else {
+        lastbase = 0
+        ticks = NULL
+        for (i in unique(d$index)) {
+            if (i == 1) {
+                d[d$index == i, ]$pos = d[d$index == i, ]$BP
+            }
+            else {
+                lastbase = lastbase + tail(subset(d, index == 
+                  i - 1)$BP, 1)
+                d[d$index == i, ]$pos = d[d$index == i, ]$BP + 
+                  lastbase
+            }
+            ticks = c(ticks, (min(d[d$index == i, ]$pos) + max(d[d$index == 
+                i, ]$pos))/2 + 1)
+        }
+        xlabel = "Chromosome"
+        labs <- unique(d$CHR)
+    }
+    xmax = ceiling(max(d$pos) * 1.03)
+    xmin = floor(max(d$pos) * -0.03)
+    def_args <- list(xaxt = "n", bty = "n", xaxs = "i", yaxs = "i", 
+        las = 1, pch = 20, xlim = c(xmin, xmax), ylim = c(0, 
+            ceiling(max(d$logp))), xlab = xlabel, ylab = expression(-log[10](italic(p))))
+    dotargs <- list(...)
+    do.call("plot", c(NA, dotargs, def_args[!names(def_args) %in% 
+        names(dotargs)]))
+    if (!is.null(chrlabs)) {
+        if (is.character(chrlabs)) {
+            if (length(chrlabs) == length(labs)) {
+                labs <- chrlabs
+            }
+            else {
+                warning("You're trying to specify chromosome labels but the number of labels != number of chromosomes.")
+            }
+        }
+        else {
+            warning("If you're trying to specify chromosome labels, chrlabs must be a character vector")
+        }
+    }
+    if (nchr == 1) {
+        axis(1, ...)
+    }
+    else {
+        axis(1, at = ticks, labels = labs, ...)
+    }
+    col = rep(col, max(d$CHR))
+    if (nchr == 1) {
+        with(d, points(pos, logp, pch = 20, col = col[1], ...))
+    }
+    else {
+        icol = 1
+        for (i in unique(d$index)) {
+            with(d[d$index == unique(d$index)[i], ], points(pos, 
+                logp, col = col[icol], pch = 20, ...))
+            icol = icol + 1
+        }
+    }
+    if (suggestiveline) 
+        abline(h = suggestiveline, col = "#000000", lwd = 2, lty = 2)
+    if (genomewideline) 
+        abline(h = genomewideline, col = "#E55738", lwd = 2, lty = 2)
+    if (!is.null(highlight)) {
+        if (any(!(highlight %in% d$SNP))) 
+            warning("You're trying to highlight SNPs that don't exist in your results.")
+        d.highlight = d[which(d$SNP %in% highlight), ]
+        with(d.highlight, points(pos, logp, col = "green3", pch = 20, 
+            ...))
+    }
+    if (!is.null(annotatePval)) {
+        topHits = subset(d, P <= annotatePval)
+        par(xpd = TRUE)
+        if (annotateTop == FALSE) {
+            with(subset(d, P <= annotatePval), textxy(pos, -log10(P), 
+                offset = 0.625, labs = topHits$SNP, cex = 0.45), 
+                ...)
+        }
+        else {
+            topHits <- topHits[order(topHits$P), ]
+            topSNPs <- NULL
+            for (i in unique(topHits$CHR)) {
+                chrSNPs <- topHits[topHits$CHR == i, ]
+                topSNPs <- rbind(topSNPs, chrSNPs[1, ])
+            }
+            textxy(topSNPs$pos, -log10(topSNPs$P), offset = 0.625, 
+                labs = topSNPs$SNP, cex = 0.5, ...)
+        }
+    }
+    par(xpd = FALSE)
+}
+
+qq_edit <- function (pvector, ...) {
+    if (!is.numeric(pvector)) 
+        stop("Input must be numeric.")
+    pvector <- pvector[!is.na(pvector) & !is.nan(pvector) & !is.null(pvector) & 
+        is.finite(pvector) & pvector < 1 & pvector > 0]
+    o = -log10(sort(pvector, decreasing = FALSE))
+    e = -log10(ppoints(length(pvector)))
+    def_args <- list(pch = 20, xlim = c(0, max(e)), ylim = c(0, 
+        max(o)), xlab = expression(Expected ~ ~-log[10](italic(p))), 
+        ylab = expression(Observed ~ ~-log[10](italic(p))))
+    dotargs <- list(...)
+    tryCatch(do.call("plot", c(list(x = e, y = o), def_args[!names(def_args) %in% 
+        names(dotargs)], dotargs)), warn = stop)
+    abline(0, 1, col = "#E55738", lwd = 2, lty = 2)
+}
+
+
+
+```
+
+_We will create a datestamp and define the Utrecht Science Park Colour Scheme_.
+```{r Setting: Colors}
+
+Today = format(as.Date(as.POSIXlt(Sys.time())), "%Y%m%d")
+Today.Report = format(as.Date(as.POSIXlt(Sys.time())), "%A, %B %d, %Y")
+
+### UtrechtScienceParkColoursScheme
+###
+### WebsitetoconvertHEXtoRGB:http://hex.colorrrs.com.
+### Forsomefunctionsyoushoulddividethesenumbersby255.
+###
+###	No.	Color			      HEX	(RGB)						              CHR		  MAF/INFO
+###---------------------------------------------------------------------------------------
+###	1	  yellow			    #FBB820 (251,184,32)				      =>	1		or 1.0>INFO
+###	2	  gold			      #F59D10 (245,157,16)				      =>	2		
+###	3	  salmon			    #E55738 (229,87,56)				      =>	3		or 0.05<MAF<0.2 or 0.4<INFO<0.6
+###	4	  darkpink		    #DB003F ((219,0,63)				      =>	4		
+###	5	  lightpink		    #E35493 (227,84,147)				      =>	5		or 0.8<INFO<1.0
+###	6	  pink			      #D5267B (213,38,123)				      =>	6		
+###	7	  hardpink		    #CC0071 (204,0,113)				      =>	7		
+###	8	  lightpurple	    #A8448A (168,68,138)				      =>	8		
+###	9	  purple			    #9A3480 (154,52,128)				      =>	9		
+###	10	lavendel		    #8D5B9A (141,91,154)				      =>	10		
+###	11	bluepurple		  #705296 (112,82,150)				      =>	11		
+###	12	purpleblue		  #686AA9 (104,106,169)			      =>	12		
+###	13	lightpurpleblue	#6173AD (97,115,173/101,120,180)	=>	13		
+###	14	seablue			    #4C81BF (76,129,191)				      =>	14		
+###	15	skyblue			    #2F8BC9 (47,139,201)				      =>	15		
+###	16	azurblue		    #1290D9 (18,144,217)				      =>	16		or 0.01<MAF<0.05 or 0.2<INFO<0.4
+###	17	lightazurblue	  #1396D8 (19,150,216)				      =>	17		
+###	18	greenblue		    #15A6C1 (21,166,193)				      =>	18		
+###	19	seaweedgreen	  #5EB17F (94,177,127)				      =>	19		
+###	20	yellowgreen		  #86B833 (134,184,51)				      =>	20		
+###	21	lightmossgreen	#C5D220 (197,210,32)				      =>	21		
+###	22	mossgreen		    #9FC228 (159,194,40)				      =>	22		or MAF>0.20 or 0.6<INFO<0.8
+###	23	lightgreen	  	#78B113 (120,177,19)				      =>	23/X
+###	24	green			      #49A01D (73,160,29)				      =>	24/Y
+###	25	grey			      #595A5C (89,90,92)				        =>	25/XY	or MAF<0.01 or 0.0<INFO<0.2
+###	26	lightgrey		    #A2A3A4	(162,163,164)			      =>	26/MT
+###
+###	ADDITIONAL COLORS
+###	27	midgrey			#D7D8D7
+###	28	verylightgrey	#ECECEC"
+###	29	white			#FFFFFF
+###	30	black			#000000
+###----------------------------------------------------------------------------------------------
+
+uithof_color = c("#FBB820","#F59D10","#E55738","#DB003F","#E35493","#D5267B",
+                 "#CC0071","#A8448A","#9A3480","#8D5B9A","#705296","#686AA9",
+                 "#6173AD","#4C81BF","#2F8BC9","#1290D9","#1396D8","#15A6C1",
+                 "#5EB17F","#86B833","#C5D220","#9FC228","#78B113","#49A01D",
+                 "#595A5C","#A2A3A4", "#D7D8D7", "#ECECEC", "#FFFFFF", "#000000")
+
+uithof_color_legend = c("#FBB820", "#F59D10", "#E55738", "#DB003F", "#E35493",
+                        "#D5267B", "#CC0071", "#A8448A", "#9A3480", "#8D5B9A",
+                        "#705296", "#686AA9", "#6173AD", "#4C81BF", "#2F8BC9",
+                        "#1290D9", "#1396D8", "#15A6C1", "#5EB17F", "#86B833",
+                        "#C5D220", "#9FC228", "#78B113", "#49A01D", "#595A5C",
+                        "#A2A3A4", "#D7D8D7", "#ECECEC", "#FFFFFF", "#000000")
+### ----------------------------------------------------------------------------
+```
+
+
+# COVID19 Host Genetic Initiative
+
+Some friends and colleagues asked about the preliminary results from the genetics studies on COVID19. One large-scale effort is the [COVID-19 Host Genetics Initiative (COVID19-HGI)](https://www.covid19hg.org){target="_blank"} which aims to bring together the human genetics community to generate, share and analyze data to learn the genetic determinants of COVID-19 susceptibility, severity and outcomes. Ultimately, these discoveries could help to generate hypotheses for drug repurposing, identify individuals at unusually high or low risk, and contribute to global knowledge of the biology of SARS-CoV-2 infection and disease.
+
+In this repository I just wanted to share a quick look at the preliminary results from the first round of meta-analysis of genome-wide association studies (GWAS) included. 
+
+> An important caveat here is that these data really are just that: preliminary. The phenotype definition used here does not accurately capture disease susceptibility and severity. Read more about this [here](https://www.covid19hg.org/blog/2020-04-30-first-round-of-meta-analysis-results/){target="_blank"}.
+
+# Loading data
+
+We have downloaded the data from the [site](https://www.covid19hg.org/blog/2020-04-30-first-round-of-meta-analysis-results/){target="_blank"} and stored this locally.
+
+```{r LoadData}
+cat("* getting results...\n")
+
+prelim.gwas.raw <- fread(paste0(RAWDATA_loc,"/COVID19_HGI_ANA5_20200429.txt.gz"),
+                         header = TRUE,
+                         verbose = FALSE,
+                         showProgress = TRUE)
+
+```
+
+```{r SummaryData}
+str(prelim.gwas.raw)
+dim(prelim.gwas.raw)
+head(prelim.gwas.raw)
+summary(prelim.gwas.raw)
+
+```
+
+# Unfiltered visualisation 
+
+Here we plot the raw results, as is, so no filtering on allele frequency etc. First we make a regular QQ plot, than we stratify it on allele frequency and imputation quality score.
+
+## N studies
+
+```{r NGWAS}
+
+ggpubr::gghistogram(prelim.gwas.raw,
+                    x = "all_meta_N",
+                    y = "..count..")
+
+```
+
+
+
+## QQ Plot
+
+```{r QQPlotRaw}
+# str(prelim.gwas.raw)
+
+Pmap <- prelim.gwas.raw %>%
+  select(., SNP, `#CHR`, POS, all_inv_var_meta_p)
+
+CMplot(Pmap, plot.type = "q",
+       file.output = FALSE,
+       main = "Unfiltered QQ plot",
+       verbose = TRUE)
+
+rm(Pmap)
+
+# p <- prelim.gwas.raw$all_inv_var_meta_p
+# 
+# qq_edit(p)
+# 
+# rm(p)
+```
+
+
+## Manhattan plot
+
+```{r MHPlotRaw}
+# str(prelim.gwas.raw)
+
+Pmap <- prelim.gwas.raw %>%
+  select(., SNP, `#CHR`, POS, all_inv_var_meta_p)
+
+CMplot(Pmap, plot.type = "m",
+       file.output = FALSE,
+       main = "Unfiltered Manhattan plot",
+       verbose = TRUE)
+
+rm(Pmap)
+
+```
+
+```{r histograms}
+
+ggpubr::gghistogram(prelim.gwas.raw,
+                    x = "all_inv_var_het_p",
+                    y = "..count..")
+
+```
+
+## Clumping
+
+# Filtering results
+
+Not done yet.
+```{r filtering}
+
+# prelim.gwas.raw
+
+```
+
+
+# Version & change log
+
+------
+
+    Version:      v1.0.0
+    Last update:  2020-05-14
+    Written by:   Sander W. van der Laan (s.w.vanderlaan-2[at]umcutrecht.nl).
+    Description:  Script to review the (preliminary) meta-GWAS results from the COVID19-HGI.
+    Minimum requirements: R version 3.4.3 (2017-06-30) -- 'Single Candle', Mac OS X El Capitan
+    
+    
+    Changes log
+    * v1.0.0 Initial version. 
+
+------
+
+
+# Session information
+
+```{r eval = TRUE}
+sessionInfo()
+```
+
+# Saving environment
+Actually: we don't want to save the data, this makse the `.RData`-file too large...
+```{r Saving}
+rm(prelim.gwas.raw)
+# save.image(paste0(PROJECT_loc, "/",Today,".",PROJECTNAME,".",SUBPROJECTNAME,".RData"))
+```
+
+------
+<sup>&copy; 1979-2020 Sander W. van der Laan | s.w.vanderlaan-2[at]umcutrecht.nl | [swvanderlaan.github.io](https://swvanderlaan.github.io){target="_blank"}.</sup>
+------
