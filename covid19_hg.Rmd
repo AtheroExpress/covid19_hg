@@ -72,6 +72,14 @@ RAWDATA_loc = paste0(COVID19_loc,"/COVID19_HGI_ANA5_20200429")
 PROJECTNAME = "COVID19" # primary goal of this analysis
 SUBPROJECTNAME = "PRELIMINARYRELEASE1" # e.g. study name
 
+### FILTERING
+# we set a threshold on the allele frequency
+AF_THRESHOLD = 0.01 
+
+### DEBUGGING MODE
+# we set the debugging mode, or real mode, options: YES/NO
+DEBUGGING_FLAG="NO"
+
 cat("\nCreate a new analysis directory...\n")
 ifelse(!dir.exists(file.path(PROJECT_loc, "/",paste0(PROJECTNAME,".",SUBPROJECTNAME))), 
        dir.create(file.path(PROJECT_loc, "/",paste0(PROJECTNAME,".",SUBPROJECTNAME))), 
@@ -383,25 +391,81 @@ uithof_color_legend = c("#FBB820", "#F59D10", "#E55738", "#DB003F", "#E35493",
 
 # COVID19 Host Genetic Initiative
 
-Some friends and colleagues asked about the preliminary results from the genetics studies on COVID19. One large-scale effort is the [COVID-19 Host Genetics Initiative (COVID19-HGI)](https://www.covid19hg.org){target="_blank"} which aims to bring together the human genetics community to generate, share and analyze data to learn the genetic determinants of COVID-19 susceptibility, severity and outcomes. Ultimately, these discoveries could help to generate hypotheses for drug repurposing, identify individuals at unusually high or low risk, and contribute to global knowledge of the biology of SARS-CoV-2 infection and disease.
+Some friends and colleagues asked about the preliminary results from the genetics studies on COVID19. One large-scale effort is the [COVID-19 Host Genetics Initiative (COVID19-HGI)](https://www.covid19hg.org){target="_blank"}[^1] which aims to bring together the human genetics community to generate, share and analyze data to learn the genetic determinants of COVID-19 susceptibility, severity and outcomes. Ultimately, these discoveries could help to generate hypotheses for drug repurposing, identify individuals at unusually high or low risk, and contribute to global knowledge of the biology of SARS-CoV-2 infection and disease.
 
 In this repository I just wanted to share a quick look at the preliminary results from the first round of meta-analysis of genome-wide association studies (GWAS) included. 
 
 > An important caveat here is that these data really are just that: preliminary. The phenotype definition used here does not accurately capture disease susceptibility and severity. Read more about this [here](https://www.covid19hg.org/blog/2020-04-30-first-round-of-meta-analysis-results/){target="_blank"}.
+
+The participating studies in this round:
+
+- *UK Biobank* (analyzed by Danny Wilson, Konrad Karczewski, Tomoko Nakanishi and Manuel Rivas)
+- *Finngen* (analyzed by Juha Karjalainen)
+- *Genes and Health* (analyzed by David Van Heel)
+- *Lifelines* (analyzed by Patrick Deelen)
+- *BioMe biobank* (analyzed by Arden Moscati)
+
+[^1]: [The COVID-19 Host Genetics Initiative _The COVID-19 Host Genetics Initiative, a global initiative to elucidate the role of host genetic factors in susceptibility and severity of the SARS-CoV-2 virus pandemic_ **EJHG 2020**.](https://www.nature.com/articles/s41431-020-0636-6).
 
 # Loading data
 
 We have downloaded the data from the [site](https://www.covid19hg.org/blog/2020-04-30-first-round-of-meta-analysis-results/){target="_blank"} and stored this locally.
 
 ```{r LoadData}
-cat("* getting results...\n")
+cat("* getting results ...\n")
 
 prelim.gwas.raw <- fread(paste0(RAWDATA_loc,"/COVID19_HGI_ANA5_20200429.txt.gz"),
                          header = TRUE,
                          verbose = FALSE,
                          showProgress = TRUE)
 
+cat("* getting HRCr1.1 reference ...\n")
+hrcr11 <- fread(paste0(PLINK_loc,"/references/HRC/HRC.r1-1.GRCh37.wgs.mac5.sites.altid.txt.gz"),
+                         header = TRUE,
+                         verbose = FALSE,
+                         showProgress = TRUE)
 ```
+
+We match the results with variantIDs from [HRC r1.1](http://www.haplotype-reference-consortium.org). We will drop variants that are not matched.
+
+```{r MergeHRC}
+
+hrcr11.sub <- hrcr11 %>%
+  select(ALTID, ID, AF)
+
+prelim.gwas.raw.hrcr11 <- merge(prelim.gwas.raw, hrcr11.sub, 
+                                            by.x = "SNP", by.y = "ALTID", 
+                                            sort = FALSE, all = FALSE)
+rm(hrcr11, hrcr11.sub)
+```
+
+
+Here we take a random sample of the data for debugging this script if `DEBUGGING_FLAG` equals `YES`.
+```{r RandomSample}
+# for debug
+# random sampling
+
+if (DEBUGGING_FLAG == "YES") {
+  cat("We are in debugging mode.")
+  
+  sample.size = 500000
+  
+  prelim.gwas.raw <- prelim.gwas.raw %>%
+    sample_n(., sample.size)
+
+  prelim.gwas.raw.hrcr11 <- prelim.gwas.raw.hrcr11 %>%
+    sample_n(., sample.size)
+
+} else if (DEBUGGING_FLAG == "NO") {
+  cat("Real-mode: using all data.")
+  
+  } else {
+    cat("This message must be attributable to human error. Please check the debugging flag.")
+    
+    }
+
+```
+
 
 ```{r SummaryData}
 str(prelim.gwas.raw)
@@ -416,83 +480,175 @@ summary(prelim.gwas.raw)
 Here we plot the raw results, as is, so no filtering on allele frequency etc. First we make a regular QQ plot, than we stratify it on allele frequency and imputation quality score.
 
 ## N studies
-
+  
 ```{r NGWAS}
-
 ggpubr::gghistogram(prelim.gwas.raw,
                     x = "all_meta_N",
-                    y = "..count..")
+                    y = "..count..",
+                    title = "Number of studies per variant",
+                    xlab = "number of studies",
+                    ylab = "number of variants",
+                    color = uithof_color[16],
+                    fill = uithof_color[16],
+                    add = "mean", add.params = list(color = uithof_color[3], linetype = 2))
 
 ```
 
 
 
-## QQ Plot
+## QQ-plot
 
-```{r QQPlotRaw}
-# str(prelim.gwas.raw)
+A simple QQ-plot can nicely show deviation from the expected distribution; this could indidate a lack of power, subtle effects originating from confounders (technical artefacts from the experiment, or population substructure), or true polygenecity.
 
+```{r PrepCMplot}
 Pmap <- prelim.gwas.raw %>%
   select(., SNP, `#CHR`, POS, all_inv_var_meta_p)
+```
+
+
+```{r QQPlotRaw}
 
 CMplot(Pmap, plot.type = "q",
+       col = uithof_color[16], cex.lab = 1,25,
+       ylim = 10, 
        file.output = FALSE,
-       main = "Unfiltered QQ plot",
+       main = "Unfiltered QQ plot [y-axis limit at 10]",
        verbose = TRUE)
 
-rm(Pmap)
 
-# p <- prelim.gwas.raw$all_inv_var_meta_p
-# 
-# qq_edit(p)
-# 
-# rm(p)
 ```
 
 
 ## Manhattan plot
 
-```{r MHPlotRaw}
-# str(prelim.gwas.raw)
+The Manhattan visualizes all the results.
 
-Pmap <- prelim.gwas.raw %>%
-  select(., SNP, `#CHR`, POS, all_inv_var_meta_p)
+```{r MHPlotRaw}
 
 CMplot(Pmap, plot.type = "m",
+       col = uithof_color, cex.lab = 1.25,
        file.output = FALSE,
        main = "Unfiltered Manhattan plot",
+       ylim = 10,
+       threshold = 5e-8, threshold.col = uithof_color[26], threshold.lty = 2, threshold.lwd = 1,
+       amplify = TRUE,
+       chr.labels = c(1:22,"X"),
        verbose = TRUE)
 
-rm(Pmap)
 
 ```
 
-```{r histograms}
-
-ggpubr::gghistogram(prelim.gwas.raw,
-                    x = "all_inv_var_het_p",
-                    y = "..count..")
-
+```{r CMPlotRaw}
+CMplot(Pmap, type = "p", plot.type = "c",
+       r = 2, H = 20, cex.lab = 1.25,
+       # col = c(uithof_color[16], uithof_color[23], uithof_color[2]),
+       col = uithof_color,
+       # col = c(uithof_color[16],uithof_color[23]),
+       chr.labels = c(1:22, "X"), 
+       # chr.labels.angle = 45,
+       # ylim = 10,
+       threshold = 5e-8, threshold.col = uithof_color[26], threshold.lty = 2, threshold.lwd = 1,
+       amplify = TRUE,
+       signal.line = 1, signal.col = "black",
+       # chr.den.col = c("darkgreen", "yellow", "red"), 
+       # cir.legend = TRUE, cir.legend.col = uithof_color[30], cir.chr.h = 1.25, chr.den.col = uithof_color[27],
+       # bin.size = 1e6,
+       outward = TRUE,
+       file.output = FALSE,
+       # file = "jpg", memo = "",
+       main = "Unfiltered Circle Manhattan plot",
+       width = 20, height = 20,
+       verbose = TRUE)
 ```
 
-## Clumping
 
 # Filtering results
 
-Not done yet.
-```{r filtering}
+We can summarize the results and include the allele frequencies from HRC r1.1 as well.
+```{r filtering summary}
+dim(prelim.gwas.raw.hrcr11)
+head(prelim.gwas.raw.hrcr11)
+str(prelim.gwas.raw.hrcr11)
+summary(prelim.gwas.raw.hrcr11)
+```
 
-# prelim.gwas.raw
+Hence we lost `r 27619819-20453182` variants. 
+
+We will plot the distribution of the allele frequencies. 
+
+```{r histogram AF}
+ggpubr::gghistogram(prelim.gwas.raw.hrcr11,
+                    x = "AF", y = "..count..",
+                    title = "Allele frequencies",
+                    xlab = "allele frequency",
+                    ylab = "number of variants",
+                    color = uithof_color[16],
+                    fill = uithof_color[16],
+                    add = "mean", add.params = list(color = uithof_color[26], linetype = 2)) +
+  # annotate("text", label = "mean AF", x = 0.1, y = 5e5, colour = uithof_color[3]) +
+  geom_vline(xintercept = 0.01, colour = uithof_color[3], lty = 1) + #annotate("text", label = "AF = 1%", x = 0.1, y = 5e5, colour = uithof_color[3]) +
+  geom_vline(xintercept = 0.02, colour = uithof_color[13], lty = 1) + #annotate("text", label = "AF = 2%", x = 0.1, y = 4.5e5, colour = uithof_color[13]) +
+  geom_vline(xintercept = 0.03, colour = uithof_color[16], lty = 1) #+ annotate("text", label = "AF = 3%", x = 0.1, y = 4e5, colour = uithof_color[16])
+
 
 ```
 
+We will apply a filter at 
+```{r filtering data}
+prelim.gwas.raw.hrcr11.qc <- prelim.gwas.raw.hrcr11 %>%
+  filter(AF > AF_THRESHOLD)
+rm(prelim.gwas.raw.hrcr11)
+```
+
+Sumamrizing the filtered data.
+```{r summary filtered data}
+dim(prelim.gwas.raw.hrcr11.qc)
+head(prelim.gwas.raw.hrcr11.qc)
+str(prelim.gwas.raw.hrcr11.qc)
+summary(prelim.gwas.raw.hrcr11.qc)
+```
+
+
+## QQ Plot after QC
+
+```{r prepping QQPlotQC}
+Pmap <- prelim.gwas.raw.hrcr11.qc %>%
+  select(., SNP, `#CHR`, POS, all_inv_var_meta_p)
+```
+
+```{r QQPlotQC}
+CMplot(Pmap, plot.type = "q",
+       col = uithof_color[16], cex.lab = 1,25,
+       ylim = 10, 
+       file.output = FALSE,
+       main = "QQ plot [AF > 0.01]",
+       verbose = TRUE)
+
+```
+
+
+## Manhattan plot after QC
+
+```{r MHPlotQC}
+
+CMplot(Pmap, plot.type = "m",
+       col = uithof_color, cex.lab = 1.25,
+       file.output = FALSE,
+       main = "Manhattan plot [AF > 0.01]",
+       ylim = 10,
+       threshold = 5e-8, threshold.col = uithof_color[26], threshold.lty = 2, threshold.lwd = 1,
+       amplify = TRUE,
+       # chr.labels = c(1:22,"X"),
+       verbose = TRUE)
+
+```
 
 # Version & change log
 
 ------
 
     Version:      v1.0.0
-    Last update:  2020-05-14
+    Last update:  2020-05-16
     Written by:   Sander W. van der Laan (s.w.vanderlaan-2[at]umcutrecht.nl).
     Description:  Script to review the (preliminary) meta-GWAS results from the COVID19-HGI.
     Minimum requirements: R version 3.4.3 (2017-06-30) -- 'Single Candle', Mac OS X El Capitan
@@ -513,8 +669,12 @@ sessionInfo()
 # Saving environment
 Actually: we don't want to save the data, this makse the `.RData`-file too large...
 ```{r Saving}
-rm(prelim.gwas.raw)
-# save.image(paste0(PROJECT_loc, "/",Today,".",PROJECTNAME,".",SUBPROJECTNAME,".RData"))
+
+rm(prelim.gwas.raw,
+   prelim.gwas.raw.hrcr11.qc,
+   Pmap)
+save.image(paste0(PROJECT_loc, "/",Today,".",PROJECTNAME,".",SUBPROJECTNAME,".RData"))
+
 ```
 
 ------
