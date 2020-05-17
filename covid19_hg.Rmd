@@ -72,11 +72,11 @@ RAWDATA_loc = paste0(COVID19_loc,"/RESULTS/COVID19_HGI_ANA5_20200508") # second 
 ### SOME VARIABLES WE NEED DOWN THE LINE
 # TRAIT_OF_INTEREST = "UCORBIO" # Phenotype
 PROJECTNAME = "COVID19" # primary goal of this analysis
-SUBPROJECTNAME = "PRELIMINARYRELEASE1" # e.g. study name
+SUBPROJECTNAME = "PRELIMINARYRELEASE2" # e.g. study name
 
 ### FILTERING
 # we set a threshold on the allele frequency
-AF_THRESHOLD = 0.00001 
+AF_THRESHOLD = 0.005 
 
 ### DEBUGGING MODE
 # we set the debugging mode, or real mode, options: YES/NO
@@ -351,58 +351,34 @@ Downloads:
 - COVID19_HGI_ANA7_20200513.txt.gz
 - COVID19_HGI_ANA7_20200513.txt.gz.tbi
 
-References
 
 [^1]: [The COVID-19 Host Genetics Initiative _The COVID-19 Host Genetics Initiative, a global initiative to elucidate the role of host genetic factors in susceptibility and severity of the SARS-CoV-2 virus pandemic_ **EJHG 2020**.](https://www.nature.com/articles/s41431-020-0636-6).
 
 # Loading data
 
-We have downloaded the data from the [site](https://www.covid19hg.org/blog/2020-04-30-first-round-of-meta-analysis-results/){target="_blank"} and stored this locally.
+We have downloaded the data from the [site](https://www.covid19hg.org/){target="_blank"} and stored this locally.
 
 ```{r LoadData}
-cat("* getting results ...\n")
+cat("Getting results ...\n")
 
-prelim.gwas.raw <- fread(paste0(RAWDATA_loc,"/COVID19_HGI_ANA2_20200508.txt.gz"),
+cat("\n* analysis 2 ...\n")
+prelim.gwas.raw <- fread(paste0(RAWDATA_loc,"/COVID19_HGI_ANA2_20200513.txt.gz"),
                          header = TRUE,
                          verbose = FALSE,
                          showProgress = TRUE)
 
-prelim.gwas.raw5 <- fread(paste0(RAWDATA_loc,"/COVID19_HGI_ANA5_20200508.txt.gz"),
+cat("\n* analysis 5 ...\n")
+prelim.gwas.raw5 <- fread(paste0(RAWDATA_loc,"/COVID19_HGI_ANA5_20200513.txt.gz"),
                          header = TRUE,
                          verbose = FALSE,
                          showProgress = TRUE)
 
-prelim.gwas.raw7 <- fread(paste0(RAWDATA_loc,"/COVID19_HGI_ANA7_20200508.txt.gz"),
+cat("\n* analysis 7 ...\n")
+prelim.gwas.raw7 <- fread(paste0(RAWDATA_loc,"/COVID19_HGI_ANA7_20200513.txt.gz"),
                          header = TRUE,
                          verbose = FALSE,
                          showProgress = TRUE)
 
-cat("* getting HRCr1.1 reference ...\n")
-hrcr11 <- fread(paste0(PLINK_loc,"/references/HRC/HRC.r1-1.GRCh37.wgs.mac5.sites.altid.txt.gz"),
-                         header = TRUE,
-                         verbose = FALSE,
-                         showProgress = TRUE)
-```
-
-We match the results with variantIDs from [HRC r1.1](http://www.haplotype-reference-consortium.org). We will drop variants that are not matched.
-
-```{r MergeHRC}
-
-hrcr11.sub <- hrcr11 %>%
-  select(ALTID, ID, AF)
-
-prelim.gwas.raw.hrcr11 <- merge(prelim.gwas.raw, hrcr11.sub, 
-                                            by.x = "SNP", by.y = "ALTID", 
-                                            sort = FALSE, all = FALSE)
-
-prelim.gwas.raw5.hrcr11 <- merge(prelim.gwas.raw5, hrcr11.sub, 
-                                            by.x = "SNP", by.y = "ALTID", 
-                                            sort = FALSE, all = FALSE)
-
-prelim.gwas.raw7.hrcr11 <- merge(prelim.gwas.raw7, hrcr11.sub, 
-                                            by.x = "SNP", by.y = "ALTID", 
-                                            sort = FALSE, all = FALSE)
-rm(hrcr11, hrcr11.sub)
 ```
 
 
@@ -418,9 +394,13 @@ if (DEBUGGING_FLAG == "YES") {
   
   prelim.gwas.raw <- prelim.gwas.raw %>%
     sample_n(., sample.size)
-
-  prelim.gwas.raw.hrcr11 <- prelim.gwas.raw.hrcr11 %>%
+  
+  prelim.gwas.raw5 <- prelim.gwas.raw5 %>%
     sample_n(., sample.size)
+  
+  prelim.gwas.raw7 <- prelim.gwas.raw7 %>%
+    sample_n(., sample.size)
+
 
 } else if (DEBUGGING_FLAG == "NO") {
   cat("Real-mode: using all data.")
@@ -432,55 +412,143 @@ if (DEBUGGING_FLAG == "YES") {
 
 ```
 
-
-```{r SummaryData}
+Summarizing the data, and get a `head` of each dataset.
+```{r SummaryData ANA2}
+cat("\n* analysis 2 ...\n")
 str(prelim.gwas.raw)
 dim(prelim.gwas.raw)
+
+# summary(prelim.gwas.raw)
 head(prelim.gwas.raw)
-summary(prelim.gwas.raw)
 
 ```
 
-# Unfiltered visualisation 
+```{r SummaryData ANA5}
+cat("\n* analysis 5 ...\n")
+str(prelim.gwas.raw5)
+dim(prelim.gwas.raw5)
+
+# summary(prelim.gwas.raw5)
+head(prelim.gwas.raw5)
+
+```
+
+```{r SummaryData ANA7}
+cat("\n* analysis 7 ...\n")
+str(prelim.gwas.raw7)
+dim(prelim.gwas.raw7)
+
+# summary(prelim.gwas.raw7)
+head(prelim.gwas.raw7)
+
+```
+
+# Calculate mean AF
+
+Here we will calculate the mean allele frequency across cohorts to plot these and to create stratified QQ-plots.
+```{r Prep histogram AF}
+prelim.gwas.raw <- prelim.gwas.raw %>%
+  mutate(meanAF = rowMeans(select(., ends_with("_AF_Allele2")),
+                          na.rm = TRUE))
+
+prelim.gwas.raw5 <- prelim.gwas.raw5 %>%
+  mutate(meanAF = rowMeans(select(., ends_with("_AF_Allele2")),
+                          na.rm = TRUE))
+
+prelim.gwas.raw7 <- prelim.gwas.raw7 %>%
+  mutate(meanAF = rowMeans(select(., ends_with("_AF_Allele2")),
+                          na.rm = TRUE))
+```
+
+# Visualisation 
 
 Here we plot the raw results, as is, so no filtering on allele frequency etc. First we make a regular QQ plot, than we stratify it on allele frequency and imputation quality score.
 
 ## N studies
   
 ```{r NGWAS}
-ggpubr::gghistogram(prelim.gwas.raw,
+
+p1 <- ggpubr::gghistogram(prelim.gwas.raw,
                     x = "all_meta_N",
                     y = "..count..",
-                    title = "Number of studies per variant",
-                    xlab = "number of studies",
-                    ylab = "number of variants",
+                    title = "COVID-19 hospitalisation",
+                    xlab = "n studies",
+                    ylab = "n variants",
+                    color = uithof_color[3],
+                    fill = uithof_color[3],
+                    add = "mean", add.params = list(color = uithof_color[3], linetype = 2))
+
+p2 <- ggpubr::gghistogram(prelim.gwas.raw,
+                    x = "all_meta_N",
+                    y = "..count..",
+                    title = "COVID-19 susceptibility",
+                    xlab = "n studies",
+                    ylab = "n variants",
                     color = uithof_color[16],
                     fill = uithof_color[16],
                     add = "mean", add.params = list(color = uithof_color[3], linetype = 2))
 
+p3 <- ggpubr::gghistogram(prelim.gwas.raw,
+                    x = "all_meta_N",
+                    y = "..count..",
+                    title = "COVID-19 predicted by flu-like symptoms",
+                    xlab = "n studies",
+                    ylab = "n variants",
+                    color = uithof_color[23],
+                    fill = uithof_color[23],
+                    add = "mean", add.params = list(color = uithof_color[3], linetype = 2))
+
+require(patchwork)
+
+p1 / p2 / p3
+
+rm(p1, p2, p3)
+
 ```
 
 
+## QQ-plots
 
-## QQ-plot
+A simple QQ-plot can nicely show deviation from the expected distribution; this could indidate a lack of power, subtle effects originating from confounders (technical artefacts from the experiment, or population substructure), or true polygenecity[^2].
 
-A simple QQ-plot can nicely show deviation from the expected distribution; this could indidate a lack of power, subtle effects originating from confounders (technical artefacts from the experiment, or population substructure), or true polygenecity.
+[^2]: McCarthy, M. I. _et al._ Genome-wide association studies for complex traits: consensus, uncertainty and challenges. **Nat. Rev. Genet.** 9, 356–369 (2008).
 
-```{r PrepCMplot}
+_Prepping the data for plotting._
+```{r PrepQQMH}
 Pmap <- prelim.gwas.raw %>%
   select(., SNP, `#CHR`, POS, all_inv_var_meta_p)
+
+Pmap5 <- prelim.gwas.raw5 %>%
+  select(., SNP, `#CHR`, POS, all_inv_var_meta_p)
+
+Pmap7 <- prelim.gwas.raw7 %>%
+  select(., SNP, `#CHR`, POS, all_inv_var_meta_p)
+
 ```
 
-
+Plotting.
 ```{r QQPlotRaw}
 
 CMplot(Pmap, plot.type = "q",
+       col = uithof_color[3], cex.lab = 1,25,
+       ylim = 10, 
+       file.output = FALSE,
+       main = "COVID-19 hospitalisation",
+       verbose = TRUE)
+
+CMplot(Pmap5, plot.type = "q",
        col = uithof_color[16], cex.lab = 1,25,
        ylim = 10, 
        file.output = FALSE,
-       main = "Unfiltered QQ plot [y-axis limit at 10]",
+       main = "COVID-19 susceptibility",
        verbose = TRUE)
 
+CMplot(Pmap7, plot.type = "q",
+       col = uithof_color[23], cex.lab = 1,25,
+       ylim = 10, 
+       file.output = FALSE,
+       main = "COVID-19 predicted by flu-like symptoms",
+       verbose = TRUE)
 
 ```
 
@@ -493,118 +561,180 @@ The Manhattan visualizes all the results.
 
 CMplot(Pmap, plot.type = "m",
        col = uithof_color, cex.lab = 1.25,
+       # col = c(uithof_color[3], uithof_color[26]), cex.lab = 1.25,
        file.output = FALSE,
-       main = "Unfiltered Manhattan plot",
+       main = "COVID-19 hospitalisation",
        ylim = 10,
        threshold = 5e-8, threshold.col = uithof_color[26], threshold.lty = 2, threshold.lwd = 1,
        amplify = TRUE,
        chr.labels = c(1:22,"X"),
        verbose = TRUE)
 
-
-```
-
-```{r CMPlotRaw}
-CMplot(Pmap, type = "p", plot.type = "c",
-       r = 2, H = 20, cex.lab = 1.25,
-       # col = c(uithof_color[16], uithof_color[23], uithof_color[2]),
-       col = uithof_color,
-       # col = c(uithof_color[16],uithof_color[23]),
-       chr.labels = c(1:22, "X"), 
-       # chr.labels.angle = 45,
-       # ylim = 10,
+CMplot(Pmap5, plot.type = "m",
+       col = uithof_color, cex.lab = 1.25,
+       # col = c(uithof_color[16], uithof_color[26]), cex.lab = 1.25,
+       file.output = FALSE,
+       main = "COVID-19 susceptibility",
+       ylim = 10,
        threshold = 5e-8, threshold.col = uithof_color[26], threshold.lty = 2, threshold.lwd = 1,
        amplify = TRUE,
-       signal.line = 1, signal.col = "black",
-       # chr.den.col = c("darkgreen", "yellow", "red"), 
-       # cir.legend = TRUE, cir.legend.col = uithof_color[30], cir.chr.h = 1.25, chr.den.col = uithof_color[27],
-       # bin.size = 1e6,
-       outward = TRUE,
-       file.output = FALSE,
-       # file = "jpg", memo = "",
-       main = "Unfiltered Circle Manhattan plot",
-       width = 20, height = 20,
+       chr.labels = c(1:22,"X"),
        verbose = TRUE)
+
+CMplot(Pmap7, plot.type = "m",
+       col = uithof_color, cex.lab = 1.25,
+       # col = c(uithof_color[23], uithof_color[26]), cex.lab = 1.25,
+       file.output = FALSE,
+       main = "COVID-19 predicted by flu-like symptoms",
+       ylim = 10,
+       threshold = 5e-8, threshold.col = uithof_color[26], threshold.lty = 2, threshold.lwd = 1,
+       amplify = TRUE,
+       chr.labels = c(1:22), #,"X", "Y"),
+       verbose = TRUE)
+
 ```
 
 
-# Filtering results
-
-We can summarize the results and include the allele frequencies from HRC r1.1 as well.
-```{r filtering summary}
-dim(prelim.gwas.raw.hrcr11)
-head(prelim.gwas.raw.hrcr11)
-str(prelim.gwas.raw.hrcr11)
-summary(prelim.gwas.raw.hrcr11)
-```
-
-Hence we lost `r 27619819-20453182` variants. 
+# Allele frequencies
 
 We will plot the distribution of the allele frequencies. 
 
 ```{r histogram AF}
-ggpubr::gghistogram(prelim.gwas.raw.hrcr11,
-                    x = "AF", y = "..count..",
-                    title = "Allele frequencies",
-                    xlab = "allele frequency",
-                    ylab = "number of variants",
+p1 <- ggpubr::gghistogram(prelim.gwas.raw,
+                    x = "meanAF", y = "..count..",
+                    title = "COVID-19 hospitalisation",
+                    xlab = "",
+                    ylab = "",
+                    color = uithof_color[3],
+                    fill = uithof_color[3],
+                    add = "mean", add.params = list(color = uithof_color[26], linetype = 2, size = 1.25)) #+
+  # annotate("text", label = "mean AF", x = 0.30, y = 5e5, colour = uithof_color[26]) #+
+  # geom_vline(xintercept = 0.01, colour = uithof_color[3], lty = 1) + #annotate("text", label = "AF = 1%", x = 0.1, y = 5e5, colour = uithof_color[3]) +
+  # geom_vline(xintercept = 0.02, colour = uithof_color[13], lty = 1) + #annotate("text", label = "AF = 2%", x = 0.1, y = 4.5e5, colour = uithof_color[13]) +
+  # geom_vline(xintercept = 0.03, colour = uithof_color[16], lty = 1) #+ annotate("text", label = "AF = 3%", x = 0.1, y = 4e5, colour = uithof_color[16])
+
+p2 <- ggpubr::gghistogram(prelim.gwas.raw5,
+                    x = "meanAF", y = "..count..",
+                    title = "COVID-19 susceptibility",
+                    xlab = "",
+                    ylab = "n variants",
                     color = uithof_color[16],
                     fill = uithof_color[16],
-                    add = "mean", add.params = list(color = uithof_color[26], linetype = 2)) +
-  # annotate("text", label = "mean AF", x = 0.1, y = 5e5, colour = uithof_color[3]) +
-  geom_vline(xintercept = 0.01, colour = uithof_color[3], lty = 1) + #annotate("text", label = "AF = 1%", x = 0.1, y = 5e5, colour = uithof_color[3]) +
-  geom_vline(xintercept = 0.02, colour = uithof_color[13], lty = 1) + #annotate("text", label = "AF = 2%", x = 0.1, y = 4.5e5, colour = uithof_color[13]) +
-  geom_vline(xintercept = 0.03, colour = uithof_color[16], lty = 1) #+ annotate("text", label = "AF = 3%", x = 0.1, y = 4e5, colour = uithof_color[16])
+                    add = "mean", add.params = list(color = uithof_color[26], linetype = 2, size = 1.25)) #+
+  # annotate("text", label = "mean AF", x = 0.30, y = 5e5, colour = uithof_color[26]) 
 
+p3 <- ggpubr::gghistogram(prelim.gwas.raw7,
+                    x = "meanAF", y = "..count..",
+                    title = "COVID-19 predicted by flu-like symptoms",
+                    xlab = "allele frequency\n(mean across studies)",
+                    ylab = "",
+                    color = uithof_color[23],
+                    fill = uithof_color[23],
+                    add = "mean", add.params = list(color = uithof_color[26], linetype = 2, size = 1.25)) #+
+  # annotate("text", label = "mean AF", x = 0.30, y = 5e5, colour = uithof_color[26]) 
+
+
+require(patchwork)
+
+p1 / p2 / p3
+
+rm(p1, p2, p3)
 
 ```
 
-We will apply a filter at 
+# Filtereing data
+
+Given that sample sizes (of the cases) remain small, we will apply a filter at mean AF = `r AF_THRESHOLD`.
 ```{r filtering data}
-prelim.gwas.raw.hrcr11.qc <- prelim.gwas.raw.hrcr11 %>%
-  filter(AF > AF_THRESHOLD)
-rm(prelim.gwas.raw.hrcr11)
+
+prelim.gwas.raw.qc <- prelim.gwas.raw %>%
+  filter(meanAF > AF_THRESHOLD)
+
+prelim.gwas.raw5.qc <- prelim.gwas.raw5 %>%
+  filter(meanAF > AF_THRESHOLD)
+
+prelim.gwas.raw7.qc <- prelim.gwas.raw7 %>%
+  filter(meanAF > AF_THRESHOLD)
+
+rm(prelim.gwas.raw, prelim.gwas.raw5, prelim.gwas.raw7)
+
 ```
 
-Sumamrizing the filtered data.
-```{r summary filtered data}
-dim(prelim.gwas.raw.hrcr11.qc)
-head(prelim.gwas.raw.hrcr11.qc)
-str(prelim.gwas.raw.hrcr11.qc)
-summary(prelim.gwas.raw.hrcr11.qc)
-```
-
-
-## QQ Plot after QC
+## QQ-plot after filter
 
 ```{r prepping QQPlotQC}
-Pmap <- prelim.gwas.raw.hrcr11.qc %>%
+PmapQC <- prelim.gwas.raw.qc %>%
   select(., SNP, `#CHR`, POS, all_inv_var_meta_p)
+
+PmapQC5 <- prelim.gwas.raw5.qc %>%
+  select(., SNP, `#CHR`, POS, all_inv_var_meta_p)
+
+PmapQC7 <- prelim.gwas.raw7.qc %>%
+  select(., SNP, `#CHR`, POS, all_inv_var_meta_p)
+
+
 ```
 
 ```{r QQPlotQC}
-CMplot(Pmap, plot.type = "q",
+CMplot(PmapQC, plot.type = "q",
+       col = uithof_color[3], cex.lab = 1,25,
+       ylim = 10, 
+       file.output = FALSE,
+       main = "COVID-19 hospitalisation",
+       verbose = TRUE)
+
+CMplot(PmapQC5, plot.type = "q",
        col = uithof_color[16], cex.lab = 1,25,
        ylim = 10, 
        file.output = FALSE,
-       main = "QQ plot [AF > 0.01]",
+       main = "COVID-19 susceptibility",
+       verbose = TRUE)
+
+CMplot(PmapQC7, plot.type = "q",
+       col = uithof_color[23], cex.lab = 1,25,
+       ylim = 10, 
+       file.output = FALSE,
+       main = "COVID-19 predicted by flu-like symptoms",
        verbose = TRUE)
 
 ```
 
 
-## Manhattan plot after QC
+## Manhattan plot after filter
 
 ```{r MHPlotQC}
 
-CMplot(Pmap, plot.type = "m",
+CMplot(PmapQC, plot.type = "m",
        col = uithof_color, cex.lab = 1.25,
+       # col = c(uithof_color[3], uithof_color[26]), cex.lab = 1.25,
        file.output = FALSE,
-       main = "Manhattan plot [AF > 0.01]",
+       main = "COVID-19 hospitalisation",
        ylim = 10,
        threshold = 5e-8, threshold.col = uithof_color[26], threshold.lty = 2, threshold.lwd = 1,
        amplify = TRUE,
-       # chr.labels = c(1:22,"X"),
+       chr.labels = c(1:22,"X"),
+       verbose = TRUE)
+
+CMplot(PmapQC5, plot.type = "m",
+       col = uithof_color, cex.lab = 1.25,
+       # col = c(uithof_color[16], uithof_color[26]), cex.lab = 1.25,
+       file.output = FALSE,
+       main = "COVID-19 susceptibility",
+       ylim = 10,
+       threshold = 5e-8, threshold.col = uithof_color[26], threshold.lty = 2, threshold.lwd = 1,
+       amplify = TRUE,
+       chr.labels = c(1:22,"X"),
+       verbose = TRUE)
+
+CMplot(PmapQC7, plot.type = "m",
+       col = uithof_color, cex.lab = 1.25,
+       # col = c(uithof_color[23], uithof_color[26]), cex.lab = 1.25,
+       file.output = FALSE,
+       main = "COVID-19 predicted by flu-like symptoms",
+       ylim = 10,
+       threshold = 5e-8, threshold.col = uithof_color[26], threshold.lty = 2, threshold.lwd = 1,
+       amplify = TRUE,
+       chr.labels = c(1:22), #,"X", "Y"),
        verbose = TRUE)
 
 ```
@@ -613,7 +743,7 @@ CMplot(Pmap, plot.type = "m",
 
 ------
 
-    Version:      v1.0.0
+    Version:      v1.0.1
     Last update:  2020-05-16
     Written by:   Sander W. van der Laan (s.w.vanderlaan-2[at]umcutrecht.nl).
     Description:  Script to review the (preliminary) meta-GWAS results from the COVID19-HGI.
@@ -621,7 +751,8 @@ CMplot(Pmap, plot.type = "m",
     
     
     Changes log
-    * v1.0.0 Initial version. 
+    * v1.0.1 Second round meta-analysis, preliminary results.
+    * v1.0.0 Initial version. First round meta-analysis, preliminary results. 
 
 ------
 
@@ -636,9 +767,10 @@ sessionInfo()
 Actually: we don't want to save the data, this makes the `.RData`-file too large...
 ```{r Saving}
 
-rm(prelim.gwas.raw,
-   prelim.gwas.raw.hrcr11.qc,
-   Pmap)
+rm(prelim.gwas.raw, prelim.gwas.raw5, prelim.gwas.raw7,
+   prelim.gwas.raw.qc, prelim.gwas.raw5.qc, prelim.gwas.raw7.qc,
+   Pmap, Pmap5, Pmap7,
+   PmapQC, PmapQC5, PmapQC7)
 save.image(paste0(PROJECT_loc, "/",Today,".",PROJECTNAME,".",SUBPROJECTNAME,".RData"))
 
 ```
