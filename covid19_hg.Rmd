@@ -65,7 +65,9 @@ ROOT_loc = "/Users/swvanderlaan"
 PLINK_loc = paste0(ROOT_loc,"/PLINK")
 COVID19_loc = paste0(PLINK_loc,"/analyses/covid19_hgi")
 PROJECT_loc = paste0(COVID19_loc,"/covid19_hg")
-RAWDATA_loc = paste0(COVID19_loc,"/COVID19_HGI_ANA5_20200429")
+SCRIPTS_loc = paste0(PROJECT_loc,"/SCRIPTS")
+# RAWDATA_loc = paste0(COVID19_loc,"/RESULTS/COVID19_HGI_ANA5_20200429") # first release
+RAWDATA_loc = paste0(COVID19_loc,"/RESULTS/COVID19_HGI_ANA5_20200508") # second release
 
 ### SOME VARIABLES WE NEED DOWN THE LINE
 # TRAIT_OF_INTEREST = "UCORBIO" # Phenotype
@@ -74,11 +76,11 @@ SUBPROJECTNAME = "PRELIMINARYRELEASE1" # e.g. study name
 
 ### FILTERING
 # we set a threshold on the allele frequency
-AF_THRESHOLD = 0.01 
+AF_THRESHOLD = 0.00001 
 
 ### DEBUGGING MODE
 # we set the debugging mode, or real mode, options: YES/NO
-DEBUGGING_FLAG="NO"
+DEBUGGING_FLAG="YES"
 
 cat("\nCreate a new analysis directory...\n")
 ifelse(!dir.exists(file.path(PROJECT_loc, "/",paste0(PROJECTNAME,".",SUBPROJECTNAME))), 
@@ -171,160 +173,6 @@ install.packages.auto("CMplot")
 devtools::install_github("jrs95/gassocplot")
 ```
 
-```{r Alternate QQMAN}
-manhattan_edit <- function (x, chr = "CHR", bp = "BP", p = "P", snp = "SNP", col = c("gray10", "gray60"), chrlabs = NULL, 
-                            suggestiveline = -log10(1e-05), genomewideline = -log10(5e-08), 
-                            highlight = NULL, logp = TRUE, annotatePval = NULL, annotateTop = TRUE, ...) {
-    CHR = BP = P = index = NULL
-    if (!(chr %in% names(x))) 
-        stop(paste("Column", chr, "not found!"))
-    if (!(bp %in% names(x))) 
-        stop(paste("Column", bp, "not found!"))
-    if (!(p %in% names(x))) 
-        stop(paste("Column", p, "not found!"))
-    if (!(snp %in% names(x))) 
-        warning(paste("No SNP column found. OK unless you're trying to highlight."))
-    if (!is.numeric(x[[chr]])) 
-        stop(paste(chr, "column should be numeric. Do you have 'X', 'Y', 'MT', etc? If so change to numbers and try again."))
-    if (!is.numeric(x[[bp]])) 
-        stop(paste(bp, "column should be numeric."))
-    if (!is.numeric(x[[p]])) 
-        stop(paste(p, "column should be numeric."))
-    d = data.frame(CHR = x[[chr]], BP = x[[bp]], P = x[[p]])
-    if (!is.null(x[[snp]])) 
-        d = transform(d, SNP = x[[snp]])
-    d <- subset(d, (is.numeric(CHR) & is.numeric(BP) & is.numeric(P)))
-    d <- d[order(d$CHR, d$BP), ]
-    if (logp) {
-        d$logp <- -log10(d$P)
-    }
-    else {
-        d$logp <- d$P
-    }
-    d$pos = NA
-    d$index = NA
-    ind = 0
-    for (i in unique(d$CHR)) {
-        ind = ind + 1
-        d[d$CHR == i, ]$index = ind
-    }
-    nchr = length(unique(d$CHR))
-    if (nchr == 1) {
-        d$pos = d$BP
-        ticks = floor(length(d$pos))/2 + 1
-        xlabel = paste("Chromosome", unique(d$CHR), "position")
-        labs = ticks
-    }
-    else {
-        lastbase = 0
-        ticks = NULL
-        for (i in unique(d$index)) {
-            if (i == 1) {
-                d[d$index == i, ]$pos = d[d$index == i, ]$BP
-            }
-            else {
-                lastbase = lastbase + tail(subset(d, index == 
-                  i - 1)$BP, 1)
-                d[d$index == i, ]$pos = d[d$index == i, ]$BP + 
-                  lastbase
-            }
-            ticks = c(ticks, (min(d[d$index == i, ]$pos) + max(d[d$index == 
-                i, ]$pos))/2 + 1)
-        }
-        xlabel = "Chromosome"
-        labs <- unique(d$CHR)
-    }
-    xmax = ceiling(max(d$pos) * 1.03)
-    xmin = floor(max(d$pos) * -0.03)
-    def_args <- list(xaxt = "n", bty = "n", xaxs = "i", yaxs = "i", 
-        las = 1, pch = 20, xlim = c(xmin, xmax), ylim = c(0, 
-            ceiling(max(d$logp))), xlab = xlabel, ylab = expression(-log[10](italic(p))))
-    dotargs <- list(...)
-    do.call("plot", c(NA, dotargs, def_args[!names(def_args) %in% 
-        names(dotargs)]))
-    if (!is.null(chrlabs)) {
-        if (is.character(chrlabs)) {
-            if (length(chrlabs) == length(labs)) {
-                labs <- chrlabs
-            }
-            else {
-                warning("You're trying to specify chromosome labels but the number of labels != number of chromosomes.")
-            }
-        }
-        else {
-            warning("If you're trying to specify chromosome labels, chrlabs must be a character vector")
-        }
-    }
-    if (nchr == 1) {
-        axis(1, ...)
-    }
-    else {
-        axis(1, at = ticks, labels = labs, ...)
-    }
-    col = rep(col, max(d$CHR))
-    if (nchr == 1) {
-        with(d, points(pos, logp, pch = 20, col = col[1], ...))
-    }
-    else {
-        icol = 1
-        for (i in unique(d$index)) {
-            with(d[d$index == unique(d$index)[i], ], points(pos, 
-                logp, col = col[icol], pch = 20, ...))
-            icol = icol + 1
-        }
-    }
-    if (suggestiveline) 
-        abline(h = suggestiveline, col = "#000000", lwd = 2, lty = 2)
-    if (genomewideline) 
-        abline(h = genomewideline, col = "#E55738", lwd = 2, lty = 2)
-    if (!is.null(highlight)) {
-        if (any(!(highlight %in% d$SNP))) 
-            warning("You're trying to highlight SNPs that don't exist in your results.")
-        d.highlight = d[which(d$SNP %in% highlight), ]
-        with(d.highlight, points(pos, logp, col = "green3", pch = 20, 
-            ...))
-    }
-    if (!is.null(annotatePval)) {
-        topHits = subset(d, P <= annotatePval)
-        par(xpd = TRUE)
-        if (annotateTop == FALSE) {
-            with(subset(d, P <= annotatePval), textxy(pos, -log10(P), 
-                offset = 0.625, labs = topHits$SNP, cex = 0.45), 
-                ...)
-        }
-        else {
-            topHits <- topHits[order(topHits$P), ]
-            topSNPs <- NULL
-            for (i in unique(topHits$CHR)) {
-                chrSNPs <- topHits[topHits$CHR == i, ]
-                topSNPs <- rbind(topSNPs, chrSNPs[1, ])
-            }
-            textxy(topSNPs$pos, -log10(topSNPs$P), offset = 0.625, 
-                labs = topSNPs$SNP, cex = 0.5, ...)
-        }
-    }
-    par(xpd = FALSE)
-}
-
-qq_edit <- function (pvector, ...) {
-    if (!is.numeric(pvector)) 
-        stop("Input must be numeric.")
-    pvector <- pvector[!is.na(pvector) & !is.nan(pvector) & !is.null(pvector) & 
-        is.finite(pvector) & pvector < 1 & pvector > 0]
-    o = -log10(sort(pvector, decreasing = FALSE))
-    e = -log10(ppoints(length(pvector)))
-    def_args <- list(pch = 20, xlim = c(0, max(e)), ylim = c(0, 
-        max(o)), xlab = expression(Expected ~ ~-log[10](italic(p))), 
-        ylab = expression(Observed ~ ~-log[10](italic(p))))
-    dotargs <- list(...)
-    tryCatch(do.call("plot", c(list(x = e, y = o), def_args[!names(def_args) %in% 
-        names(dotargs)], dotargs)), warn = stop)
-    abline(0, 1, col = "#E55738", lwd = 2, lty = 2)
-}
-
-
-
-```
 
 _We will create a datestamp and define the Utrecht Science Park Colour Scheme_.
 ```{r Setting: Colors}
@@ -393,17 +241,115 @@ uithof_color_legend = c("#FBB820", "#F59D10", "#E55738", "#DB003F", "#E35493",
 
 Some friends and colleagues asked about the preliminary results from the genetics studies on COVID19. One large-scale effort is the [COVID-19 Host Genetics Initiative (COVID19-HGI)](https://www.covid19hg.org){target="_blank"}[^1] which aims to bring together the human genetics community to generate, share and analyze data to learn the genetic determinants of COVID-19 susceptibility, severity and outcomes. Ultimately, these discoveries could help to generate hypotheses for drug repurposing, identify individuals at unusually high or low risk, and contribute to global knowledge of the biology of SARS-CoV-2 infection and disease.
 
-In this repository I just wanted to share a quick look at the preliminary results from the first round of meta-analysis of genome-wide association studies (GWAS) included. 
+In this repository I just wanted to share a quick look at the (preliminary) results from the rounds of meta-analysis of genome-wide association studies (GWAS) included. 
 
-> An important caveat here is that these data really are just that: preliminary. The phenotype definition used here does not accurately capture disease susceptibility and severity. Read more about this [here](https://www.covid19hg.org/blog/2020-04-30-first-round-of-meta-analysis-results/){target="_blank"}.
+> First Release Notes: An important caveat here is that these data really are just that: preliminary. The phenotype definition used here does not accurately capture disease susceptibility and severity. Read more about this [here](https://www.covid19hg.org/blog/2020-04-30-first-round-of-meta-analysis-results/){target="_blank"}.
 
-The participating studies in this round:
+> Second Release Notes: Meta-analysis was done with inverse variance weighting. Positions are on GRCh37. An allele frequency (AF) filter of 0.0001 and an imputation quality (INFO) filter of 0.6 was applied to each study prior to meta-analysis. Read more [here](https://www.covid19hg.org/results/){target="_blank"}.
 
-- *UK Biobank* (analyzed by Danny Wilson, Konrad Karczewski, Tomoko Nakanishi and Manuel Rivas)
-- *Finngen* (analyzed by Juha Karjalainen)
-- *Genes and Health* (analyzed by David Van Heel)
-- *Lifelines* (analyzed by Patrick Deelen)
-- *BioMe biobank* (analyzed by Arden Moscati)
+
+## Studies
+
+The participating studies:
+
+- *UK Biobank (UKBB)* (analyzed by Danny Wilson, Konrad Karczewski, Tomoko Nakanishi and Manuel Rivas)
+- *FinnGen (FinnGen)* (analyzed by Juha Karjalainen)
+- *Genes and Health (GNH)* (analyzed by David Van Heel)
+- *BioMe biobank (BioMe_RGN)* (analyzed by Arden Moscati)
+- *Helix Exome+ COVID-19 Phenotypes (Helix)* 
+- *LifeLines Global Screening Array (LifelinesCyto)* (analyzed by Patrick Deelen)
+- *LifeLines CytoSNP (LifelinesGsa)* (analyzed by Patrick Deelen)
+- *Netherlands Twin Register (NTR)*
+- *Partners Healthcare Biobank (PHBB)*
+
+
+## Data description
+
+Data column descriptions:
+
+- #CHR: chromosome, 
+- POS: chromosome position in build 37, 
+- REF: non-effect allele, 
+- ALT: effect allele (beta is for this allele), 
+- SNP: #CHR:POS:REF:ALT, 
+- {STUDY}_AF_Allele2: allele frequency in {STUDY}, 
+- all_meta_N: number of studies that had the variant after AF and INFO filtering and as such were used for the meta, 
+- all_inv_var_meta_beta: effect size on log(OR) scale, 
+- all_inv_var_meta_sebeta: standard error of effect size, 
+- all_inv_var_meta_p: p-value, 
+- all_inv_var_het_p: p-value from Cochran's Q heterogeneity test.
+
+
+## Analyses
+
+There are several analyses carried out for COVID-19 susceptibility, severity and outcomes. 
+
+- ANA2, Hospitalized vs. non-hospitalized
+
+
+### Analysis 2: 20200508-results-ANA2_inv_var_meta
+
+*Phenotype*: ANA2, Hospitalized vs. non-hospitalized. *Population*: All.
+
+*Total cases*: 716. *Total controls*: 616.
+
+*Contributing studies (n_cases, n_controls)*: 
+
+- FinnGen_FIN (30, 179), 
+- GNH_SAS (34, 13), 
+- LifelinesGsa_EUR (6, 183), 
+- PHBB_EUR (17, 57), 
+- UKBB_EUR (629, 184).
+
+Downloads:
+
+- COVID19_HGI_ANA2_20200513.txt.gz
+- COVID19_HGI_ANA2_20200513.txt.gz.tbi
+
+
+### Analysis 5: 20200508-results-ANA5_ALL_inv_var_meta
+
+*Phenotype*: ANA5, susceptibility (affected vs. population). *Population*: All.
+
+*Total cases*: 1,678. *Total controls*: 674,635.
+
+*Contributing studies (n_cases, n_controls)*: 
+
+- BioMe_RGN_EUR (20, 10169), 
+- FinnGen_FIN (209, 203431), 
+- GNH_SAS (64, 27351), 
+- LifelinesCyto_EUR (62, 5750), 
+- LifelinesGsa_EUR (189, 15975), 
+- NTR_CEU (163, 3160), 
+- PHBB_AFR (34, 2169), 
+- PHBB_EUR (74, 28950), 
+- UKBB_AFR (51, 6585), 
+- UKBB_EUR (812, 371095).
+
+Downloads: 
+
+- COVID19_HGI_ANA5_20200513.txt.gz
+- COVID19_HGI_ANA5_20200513.txt.gz.tbi
+
+
+### Analysis 7: 20200508-results-ANA7_inv_var_meta
+
+*Phenotype*: ANA7, COVID-19 predicted by flu-like symptoms. *Population*: European.
+
+*Total cases*: 1,294. *Total controls*: 26,969.
+
+*Contributing studies (n_cases, n_controls)*: 
+
+- LifelinesGsa_EUR (443, 15406), 
+- LifelinesCyto_EUR (194, 5451), 
+- Helix_EUR (657, 6112).
+
+Downloads:
+
+- COVID19_HGI_ANA7_20200513.txt.gz
+- COVID19_HGI_ANA7_20200513.txt.gz.tbi
+
+References
 
 [^1]: [The COVID-19 Host Genetics Initiative _The COVID-19 Host Genetics Initiative, a global initiative to elucidate the role of host genetic factors in susceptibility and severity of the SARS-CoV-2 virus pandemic_ **EJHG 2020**.](https://www.nature.com/articles/s41431-020-0636-6).
 
@@ -414,7 +360,17 @@ We have downloaded the data from the [site](https://www.covid19hg.org/blog/2020-
 ```{r LoadData}
 cat("* getting results ...\n")
 
-prelim.gwas.raw <- fread(paste0(RAWDATA_loc,"/COVID19_HGI_ANA5_20200429.txt.gz"),
+prelim.gwas.raw <- fread(paste0(RAWDATA_loc,"/COVID19_HGI_ANA2_20200508.txt.gz"),
+                         header = TRUE,
+                         verbose = FALSE,
+                         showProgress = TRUE)
+
+prelim.gwas.raw5 <- fread(paste0(RAWDATA_loc,"/COVID19_HGI_ANA5_20200508.txt.gz"),
+                         header = TRUE,
+                         verbose = FALSE,
+                         showProgress = TRUE)
+
+prelim.gwas.raw7 <- fread(paste0(RAWDATA_loc,"/COVID19_HGI_ANA7_20200508.txt.gz"),
                          header = TRUE,
                          verbose = FALSE,
                          showProgress = TRUE)
@@ -434,6 +390,14 @@ hrcr11.sub <- hrcr11 %>%
   select(ALTID, ID, AF)
 
 prelim.gwas.raw.hrcr11 <- merge(prelim.gwas.raw, hrcr11.sub, 
+                                            by.x = "SNP", by.y = "ALTID", 
+                                            sort = FALSE, all = FALSE)
+
+prelim.gwas.raw5.hrcr11 <- merge(prelim.gwas.raw5, hrcr11.sub, 
+                                            by.x = "SNP", by.y = "ALTID", 
+                                            sort = FALSE, all = FALSE)
+
+prelim.gwas.raw7.hrcr11 <- merge(prelim.gwas.raw7, hrcr11.sub, 
                                             by.x = "SNP", by.y = "ALTID", 
                                             sort = FALSE, all = FALSE)
 rm(hrcr11, hrcr11.sub)
