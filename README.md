@@ -1,4 +1,4 @@
-## COVID-19
+## COVID-19 Host Genetics Initiative (preliminary) meta-analysis of GWAS
 
 This repository includes an analysis, and some visualisations of the [COVID-19 Host Genetics Initiative](https://www.covid19hg.org) meta-analysis [results](https://www.covid19hg.org/results/). 
 
