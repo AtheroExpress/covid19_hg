@@ -595,7 +595,7 @@ CMplot(Pmap7, plot.type = "m",
 ```
 
 
-# Allele frequencies
+## Allele frequencies
 
 We will plot the distribution of the allele frequencies. 
 
@@ -642,7 +642,12 @@ rm(p1, p2, p3)
 
 ```
 
-# Filtereing data
+## Stratified QQ-plots
+
+Here we will add in QQ-plots stratified on the mean allele frequency, this will show the lambda and aids in interpreting the inflation per AF-stratum.
+
+
+# Filtering data
 
 Given that sample sizes (of the cases) remain small, we will apply a filter at mean AF = `r AF_THRESHOLD`.
 ```{r filtering data}
