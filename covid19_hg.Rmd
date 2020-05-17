@@ -285,6 +285,8 @@ Data column descriptions:
 There are several analyses carried out for COVID-19 susceptibility, severity and outcomes. 
 
 - ANA2, Hospitalized vs. non-hospitalized
+- ANA5, susceptibility (affected vs. population)
+- ANA7, COVID-19 predicted by flu-like symptoms
 
 
 ### Analysis 2: 20200508-results-ANA2_inv_var_meta
